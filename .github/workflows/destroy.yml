@@ -1,0 +1,45 @@
+name: Destroy infrastruttura AWS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-central-1
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: opentofu/setup-opentofu@v1
+
+      - name: tofu init
+        run: tofu -chdir=terraform init
+
+      # Creati da Ansible
+      - name: Delete SSM parameters
+        run: |
+          for p in /easy-polls/join-command /easy-polls/kubeconfig; do
+            aws ssm delete-parameter --name "$p" \
+              && echo "$p deleted" \
+              || echo "$p was not found"
+          done
+
+      - name: tofu destroy
+        run: tofu -chdir=terraform destroy -auto-approve
+        env:
+          TF_VAR_bastion_public_key:    ${{ secrets.BASTION_SSH_PUBLIC_KEY }}
+          TF_VAR_node_public_key:       ${{ secrets.NODE_SSH_PUBLIC_KEY }}
+          TF_VAR_docdb_master_password: ${{ secrets.MONGO_PASSWORD }}

@@ -1,0 +1,169 @@
+name: Deploy infrastruttura AWS
+
+on:
+  push:
+    branches: [main]
+    paths: ['terraform/**', 'ansible/**']
+  pull_request:
+    paths: ['terraform/**', 'ansible/**']
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: eu-central-1
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - uses: opentofu/setup-opentofu@v1
+
+      - name: tofu init
+        run: tofu -chdir=terraform init
+
+      - name: tofu plan
+        run: tofu -chdir=terraform plan -no-color 2>&1 | tee plan.txt
+        env:
+          TF_VAR_bastion_public_key:    ${{ secrets.BASTION_SSH_PUBLIC_KEY }}
+          TF_VAR_node_public_key:       ${{ secrets.NODE_SSH_PUBLIC_KEY }}
+          TF_VAR_docdb_master_password: ${{ secrets.MONGO_PASSWORD }}
+
+      - name: Comment plan
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('plan.txt', 'utf8');
+            const body = plan.length > 60000
+              ? plan.slice(0, 60000) + '\n...(troncato)'
+              : plan;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### OpenTofu Plan\n\`\`\`\n${body}\n\`\`\``
+            });
+
+  provision:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: opentofu/setup-opentofu@v1
+
+      - name: tofu init
+        run: tofu -chdir=terraform init
+      
+      - name: tofu plan
+        run: tofu -chdir=terraform plan
+        env:
+          TF_VAR_bastion_public_key:    ${{ secrets.BASTION_SSH_PUBLIC_KEY }}
+          TF_VAR_node_public_key:       ${{ secrets.NODE_SSH_PUBLIC_KEY }}
+          TF_VAR_docdb_master_password: ${{ secrets.MONGO_PASSWORD }}
+
+      - name: tofu apply
+        run: tofu -chdir=terraform apply -auto-approve
+        env:
+          TF_VAR_bastion_public_key:    ${{ secrets.BASTION_SSH_PUBLIC_KEY }}
+          TF_VAR_node_public_key:       ${{ secrets.NODE_SSH_PUBLIC_KEY }}
+          TF_VAR_docdb_master_password: ${{ secrets.MONGO_PASSWORD }}
+
+      - name: Export Terraform outputs
+        run: |
+          tofu -chdir=terraform output -json > tf-outputs.json
+          echo "=== Inventory generato ==="
+          cat terraform/tf_output/hosts.ini
+
+      - name: Save inventory and outputs as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: infra-outputs
+          path: |
+            terraform/tf_output/hosts.ini
+            tf-outputs.json
+          retention-days: 1
+
+  configure:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: provision
+    environment: production
+    env:
+      ANSIBLE_HOST_KEY_CHECKING: "False"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download inventory and TF outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: infra-outputs
+
+      - name: Write SSH private keys
+        run: |
+          echo "${{ secrets.BASTION_SSH_PRIVATE_KEY }}" > bastion_key
+          echo "${{ secrets.NODE_SSH_PRIVATE_KEY }}" > node_key
+          chmod 600 bastion_key
+          chmod 600 node_key
+
+      - name: Install Ansible
+        run: pip install --quiet ansible
+
+      - name: Configure control plane
+        run: ansible-playbook -i terraform/tf_output/hosts.ini ansible/control-plane.yml
+
+      - name: Configure bastion host
+        run: ansible-playbook -i terraform/tf_output/hosts.ini ansible/bastion-host.yml
+
+      - name: Summary
+        run: |
+          NLB=$(jq -r '.nlb_dns_name.value' tf-outputs.json)
+          BASTION=$(jq -r '.bastion_public_ip.value' tf-outputs.json)
+
+          echo "Load Balancer: http://$NLB"
+          echo "Bastion Host: $BASTION"
+  
+  trigger-app-deployment:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: configure
+    environment: production
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trigger application deployment
+        env:
+          GH_TOKEN: ${{ secrets.DEPLOY_TRIGGER_TOKEN }}
+        run: |
+          gh workflow run deploy.yml \
+            --repo "${{ github.repository_owner }}/easy-polls" \
+            --ref main

@@ -1,0 +1,82 @@
+---
+- name: Configure bastion host
+  hosts: bastion
+  become: true
+
+  tasks:
+    - name: Wait for cloud-init to finish
+      command: cloud-init status --wait
+      register: cloudinit
+      changed_when: false
+      failed_when: cloudinit.rc not in [0, 2]
+
+    - name: Install basic utilities
+      apt:
+        name:
+          - curl
+          - unzip
+          - ca-certificates
+        state: present
+        update_cache: true
+
+    - name: Check if AWS CLI is already installed
+      stat:
+        path: /usr/local/bin/aws
+      register: awscli_bin
+
+    - name: Install AWS CLI
+      shell: |
+        curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+        unzip -q -o /tmp/awscliv2.zip -d /tmp
+        /tmp/aws/install
+      when: not awscli_bin.stat.exists
+
+    - name: Get latest stable kubectl version
+      uri:
+        url: https://dl.k8s.io/release/stable.txt
+        return_content: true
+      register: kubectl_stable
+
+    - name: Install kubectl
+      get_url:
+        url: "https://dl.k8s.io/release/{{ kubectl_stable.content | trim }}/bin/linux/amd64/kubectl"
+        dest: /usr/local/bin/kubectl
+        mode: "0755"
+
+    - name: Create .kube directory for ubuntu user
+      file:
+        path: /home/ubuntu/.kube
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: "0700"
+
+    - name: Fetch kubeconfig from SSM Parameter Store
+      become_user: ubuntu
+      shell: >
+        /usr/local/bin/aws ssm get-parameter
+        --name "{{ ssm_kubeconfig_path }}"
+        --with-decryption
+        --region {{ aws_region }}
+        --query Parameter.Value
+        --output text > /home/ubuntu/.kube/config
+      no_log: true
+
+    - name: Change kubeconfig's permissions
+      file:
+        path: /home/ubuntu/.kube/config
+        owner: ubuntu
+        group: ubuntu
+        mode: "0600"
+
+    - name: Check if the bastion host reaches the cluster
+      become_user: ubuntu
+      command: /usr/local/bin/kubectl get nodes
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: bastion_nodes
+      changed_when: false
+
+    - name: Check kubectl output
+      debug:
+        msg: "{{ bastion_nodes.stdout_lines }}"
