@@ -60,7 +60,7 @@ variable "worker_min_size" {
 variable "worker_desired_capacity" {
     description = "Numero desiderato di worker"
     type = number
-    default = 3
+    default = 2
 }
 
 variable "worker_max_size" {
