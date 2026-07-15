@@ -1,9 +1,6 @@
 resource "aws_security_group" "nlb" {
     name = "${var.project}-nlb-sg"
     vpc_id = aws_vpc.main.id
-    tags = {
-        Name = "${var.project}-nlb-sg"
-    }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "nlb_http" {
@@ -25,9 +22,6 @@ resource "aws_vpc_security_group_egress_rule" "nlb_to_nodeport" {
 resource "aws_security_group" "bastion" {
     name = "${var.project}-bastion-sg"
     vpc_id = aws_vpc.main.id
-    tags = {
-        Name = "${var.project}-bastion-sg"
-    }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "bastion_ssh" {
@@ -47,10 +41,6 @@ resource "aws_vpc_security_group_egress_rule" "bastion_all" {
 resource "aws_security_group" "node" {
     name = "${var.project}-node-sg"
     vpc_id = aws_vpc.main.id
-
-    tags = {
-        Name = "${var.project}-node-sg"
-    }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "node_nodeport_from_nlb" {
@@ -94,10 +84,6 @@ resource "aws_vpc_security_group_egress_rule" "node_all" {
 resource "aws_security_group" "docdb" {
     name = "${var.project}-docdb-sg"
     vpc_id = aws_vpc.main.id
-
-    tags = {
-        Name = "${var.project}-docdb-sg"
-    }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "docdb_from_nodes" {
