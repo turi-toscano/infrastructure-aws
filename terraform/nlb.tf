@@ -5,9 +5,6 @@ resource "aws_lb" "ingress" {
     subnets = aws_subnet.public[*].id
     security_groups = [aws_security_group.nlb.id]
     enable_cross_zone_load_balancing = true
-    tags = {
-        Name = "${var.project}-nlb"
-    }
 }
 
 resource "aws_lb_target_group" "ingress" {
@@ -21,10 +18,6 @@ resource "aws_lb_target_group" "ingress" {
     health_check {
         protocol = "TCP"
         port = "traffic-port"
-    }
-    
-    tags = {
-        Name = "${var.project}-nlb-tg"
     }
 }
 

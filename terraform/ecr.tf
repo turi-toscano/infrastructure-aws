@@ -15,10 +15,6 @@ resource "aws_ecr_repository" "app" {
     image_scanning_configuration {
         scan_on_push = true
     }
-    
-    tags = {
-        Name = "${var.project}-${each.value}"
-    }
 }
 
 resource "aws_ecr_lifecycle_policy" "app" {
@@ -30,8 +26,8 @@ resource "aws_ecr_lifecycle_policy" "app" {
             rulePriority = 1
             description  = "Mantieni solo le ultime 10 immagini"
             selection = {
-                tagStatus   = "any"
-                countType   = "imageCountMoreThan"
+                tagStatus = "any"
+                countType = "imageCountMoreThan"
                 countNumber = 10
             }
             
