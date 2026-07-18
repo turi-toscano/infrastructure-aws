@@ -21,8 +21,8 @@ Lo schema architetturale è il seguente:
 
 I componenti sono i seguenti:
  - **Due subnet private**: collocate in AZ differenti, ospitano i nodi del cluster Kubernetes e l'istanza DocumentDB.
- - **Due subnet pubbliche**: ospitano il Network Load Balancer, il Bastion Host e il NAT Gateway.
- - **Network Load Balancer**: punto d'ingresso all'applicativo, si occupa di smistare le richieste dei client, in ingresso sulla porta $80$, ai worker del cluster Kubernetes sulla porta $30080$ situati nelle subnet private.
+ - **Due subnet pubbliche**: ospitano l'Application Load Balancer, il Bastion Host e il NAT Gateway.
+ - **Application Load Balancer**: punto d'ingresso all'applicativo, si occupa di smistare le richieste dei client, in ingresso sulla porta $80$, ai worker del cluster Kubernetes sulla porta $30080$ situati nelle subnet private.
    - La porta $30080$ viene aperta su ogni host dall'Ingress Controller nginx, che si occupa di gestire le richieste HTTP e mapparle al Service corretto.
  - **NAT Gateway e Internet Gateway**: permettono ai worker del cluster di uscire in Internet per scaricare le immagini dei container e i pacchetti. L'Internet Gateway consente inoltre la comunicazione con il Bastion Host.
  - **Bastion Host**: consente di comunicare con il cluster Kubernetes senza esporre l'API all'esterno. Permette inoltre di effettuare l'accesso SSH ai nodi situati nelle subnet private.
@@ -47,7 +47,7 @@ Il provisioning e la configurazione dell'infrastruttura è delegata alle GitHub 
     ├── ecr.tf
     ├── iam.tf
     ├── network.tf
-    ├── nlb.tf
+    ├── alb.tf
     ├── outputs.tf
     ├── providers.tf
     ├── security_groups.tf
@@ -70,13 +70,13 @@ La directory `terraform` contiene i file Terraform di IaC per la creazione dell'
  - `network.tf`: si occupa della creazione della VPC (`10.0.0.0/16`) e dell'intera topologia di rete, ossia due subnet pubbliche e due subnet private distribuite su due AZ differenti, l'Internet Gateway, il NAT Gateway (con il relativo Elastic IP) e le due route table.
    - La route table pubblica instrada il traffico diretto all'esterno (`0.0.0.0/0`) verso l'Internet Gateway, ed è associata alle subnet pubbliche.
    - La route table privata instrada il traffico diretto all'esterno verso il NAT Gateway, ed è associata alle subnet private.
- - `nlb.tf`: si occupa della creazione del Network Load Balancer, collocato nelle due subnet pubbliche, e dei componenti a esso associati, ossia un listener TCP sulla porta $80$ e un target group che punta ai nodi worker sulla porta $30080$, ossia la NodePort su cui è in ascolto l'Ingress Controller.
+ - `alb.tf`: si occupa della creazione dell'Application Load Balancer, collocato nelle due subnet pubbliche, e dei componenti a esso associati, ossia un listener TCP sulla porta $80$ e un target group che punta ai nodi worker sulla porta $30080$, ossia la NodePort su cui è in ascolto l'Ingress Controller.
  - `outputs.tf`: si occupa della generazione del file di inventario `hosts.ini` a partire dal template `inventory.tpl`, popolandolo con gli indirizzi IP effettivi delle istanze appena create.
  - `providers.tf`: definisce il provider AWS e configura il backend remoto S3 per il salvataggio dello stato di Terraform, con meccanismo di locking basato su una tabella DynamoDB. Il bucket S3 e la tabella DynamoDB devono esistere prima della prima esecuzione e possono essere create attraverso lo script `init_backend.sh`.
  - `security_groups.tf`: si occupa della creazione dei Security Group che regolano il traffico all'interno dell'infrastruttura. In particolare:
-   - `easy-polls-nlb-sg`: consente il traffico HTTP in ingresso sulla porta $80$ da qualunque indirizzo, e in uscita unicamente verso i nodi del cluster sulla porta $30080$.
+   - `easy-polls-alb-sg`: consente il traffico HTTP in ingresso sulla porta $80$ da qualunque indirizzo, e in uscita unicamente verso i nodi del cluster sulla porta $30080$.
    - `easy-polls-bastion-sg`: consente l'accesso SSH in ingresso sulla porta $22$.
-   - `easy-polls-node-sg`: consente in ingresso il traffico sulla porta $30080$ unicamente proveniente dal Security Group del Network Load Balancer, e le porte $22$ (SSH) e $6443$ (API server) unicamente dal Security Group del Bastion Host. È inoltre presente una regola *self-referencing* che consente tutto il traffico tra i nodi del cluster, necessaria al funzionamento dei componenti interni di Kubernetes (API server, kubelet, etcd, overlay di rete di Flannel, intervallo delle NodePort).
+   - `easy-polls-node-sg`: consente in ingresso il traffico sulla porta $30080$ unicamente proveniente dal Security Group dell'Application Load Balancer, e le porte $22$ (SSH) e $6443$ (API server) unicamente dal Security Group del Bastion Host. È inoltre presente una regola *self-referencing* che consente tutto il traffico tra i nodi del cluster, necessaria al funzionamento dei componenti interni di Kubernetes (API server, kubelet, etcd, overlay di rete di Flannel, intervallo delle NodePort).
    - `easy-polls-docdb-sg`: consente il traffico in ingresso sulla porta $27017$ unicamente dal Security Group dei nodi.
    - I Security Group si referenziano reciprocamente anziché tramite indirizzi IP, rendendoli indipendenti dagli indirizzi effettivi delle istanze che sono regolate dall'AutoScaling Group.
 
