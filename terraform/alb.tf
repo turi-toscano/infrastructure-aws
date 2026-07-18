@@ -1,9 +1,9 @@
 resource "aws_lb" "ingress" {
     name = "${var.project}-alb"
-    load_balancer_type = "network"
+    load_balancer_type = "application"
     internal = false
     subnets = aws_subnet.public[*].id
-    security_groups = [aws_security_group.nlb.id]
+    security_groups = [aws_security_group.alb.id]
     enable_cross_zone_load_balancing = true
 }
 
