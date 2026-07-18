@@ -1,18 +1,18 @@
-resource "aws_security_group" "nlb" {
-    name = "${var.project}-nlb-sg"
+resource "aws_security_group" "alb" {
+    name = "${var.project}-alb-sg"
     vpc_id = aws_vpc.main.id
 }
 
-resource "aws_vpc_security_group_ingress_rule" "nlb_http" {
-    security_group_id = aws_security_group.nlb.id
+resource "aws_vpc_security_group_ingress_rule" "alb_http" {
+    security_group_id = aws_security_group.alb.id
     cidr_ipv4 = "0.0.0.0/0"
     from_port = 80
     to_port = 80
     ip_protocol = "tcp"
 }
 
-resource "aws_vpc_security_group_egress_rule" "nlb_to_nodeport" {
-    security_group_id = aws_security_group.nlb.id
+resource "aws_vpc_security_group_egress_rule" "alb_to_nodeport" {
+    security_group_id = aws_security_group.alb.id
     referenced_security_group_id = aws_security_group.node.id
     from_port = var.ingress_node_port
     to_port = var.ingress_node_port
@@ -43,9 +43,9 @@ resource "aws_security_group" "node" {
     vpc_id = aws_vpc.main.id
 }
 
-resource "aws_vpc_security_group_ingress_rule" "node_nodeport_from_nlb" {
+resource "aws_vpc_security_group_ingress_rule" "node_nodeport_from_alb" {
     security_group_id = aws_security_group.node.id
-    referenced_security_group_id = aws_security_group.nlb.id
+    referenced_security_group_id = aws_security_group.alb.id
     from_port = var.ingress_node_port
     to_port = var.ingress_node_port
     ip_protocol = "tcp"

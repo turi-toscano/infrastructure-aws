@@ -1,5 +1,5 @@
 resource "aws_lb" "ingress" {
-    name = "${var.project}-nlb"
+    name = "${var.project}-alb"
     load_balancer_type = "network"
     internal = false
     subnets = aws_subnet.public[*].id
@@ -10,21 +10,22 @@ resource "aws_lb" "ingress" {
 resource "aws_lb_target_group" "ingress" {
     name = "${var.project}-ingress-tg"
     port = var.ingress_node_port
-    protocol = "TCP"
+    protocol = "HTTP"
     target_type = "instance"
     vpc_id = aws_vpc.main.id
-    preserve_client_ip = "true"
     
     health_check {
-        protocol = "TCP"
+        protocol = "HTTP"
+        path = "/healthz"
         port = "traffic-port"
+        matcher = "200"
     }
 }
 
 resource "aws_lb_listener" "http" {
     load_balancer_arn = aws_lb.ingress.arn
     port = 80
-    protocol = "TCP"
+    protocol = "HTTP"
     
     default_action {
         type = "forward"
